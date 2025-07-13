@@ -121,7 +121,7 @@ function startAutoUptime() {
 }
 
 // Special items to monitor (now free for everyone)
-const SPECIAL_ITEMS = ['Godly Sprinkler', 'Advance Sprinkler', 'basic Sprinkler', 'Master Sprinkler', 'beanstalk', 'Ember lily'];
+const SPECIAL_ITEMS = ['Godly Sprinkler', 'Advance Sprinkler', 'basic Sprinkler', 'Master Sprinkler', 'beanstalk', 'Ember lily', 'Mythical egg', 'Paradise egg', 'levelup lolipop', 'giant pinecone'];
 
 let sharedWebSocket = null;
 let keepAliveInterval = null;
