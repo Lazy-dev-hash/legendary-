@@ -13,6 +13,7 @@ const vipUsers = new Map();
 const accessRequests = new Map();
 const lastSentCache = new Map();
 const globalLastSeen = new Map();
+const customSpecialItems = new Map(); // Store custom items per VIP user
 
 // Bot configuration
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
@@ -150,25 +151,26 @@ async function processStockUpdate(stock) {
 
 // Check for special items (VIP feature)
 async function checkSpecialItems(stockData) {
-  const specialItemsFound = [];
-  
-  for (const category of Object.values(stockData)) {
-    if (category.items) {
-      for (const item of category.items) {
-        if (item.quantity > 0 && SPECIAL_ITEMS.some(special => 
-          cleanText(item.name).includes(cleanText(special))
-        )) {
-          specialItemsFound.push(item);
+  for (const [userId, userData] of vipUsers.entries()) {
+    if (!userData.active) continue;
+    
+    const userSpecialItems = [...SPECIAL_ITEMS, ...(customSpecialItems.get(userId) || [])];
+    const specialItemsFound = [];
+    
+    for (const category of Object.values(stockData)) {
+      if (category.items) {
+        for (const item of category.items) {
+          if (item.quantity > 0 && userSpecialItems.some(special => 
+            cleanText(item.name).includes(cleanText(special))
+          )) {
+            specialItemsFound.push(item);
+          }
         }
       }
     }
-  }
 
-  if (specialItemsFound.length > 0) {
-    for (const [userId, userData] of vipUsers.entries()) {
-      if (userData.active) {
-        await sendSpecialItemAlert(userId, specialItemsFound);
-      }
+    if (specialItemsFound.length > 0) {
+      await sendSpecialItemAlert(userId, specialItemsFound);
     }
   }
 }
@@ -275,6 +277,14 @@ async function handleMessage(senderId, messageText) {
 
   // User commands
   if (text === 'start' || text === 'help') {
+    const isVip = vipUsers.has(senderId) && vipUsers.get(senderId).active;
+    const vipCommands = isVip ? `
+💎 **VIP COMMANDS:**
+➕ **add [item]** - Add custom special item
+➖ **remove [item]** - Remove custom item
+📋 **list** - Show your special items
+` : '';
+
     const helpMessage = {
       text: `🌟 ═══════════════════════════════ 🌟
 🤖 **WELCOME TO GAG STOCK BOT** 🤖
@@ -288,11 +298,12 @@ async function handleMessage(senderId, messageText) {
 🛑 **stop** - Stop notifications  
 💎 **vip** - Request VIP access
 ℹ️ **help** - Show this menu
-
+${vipCommands}
 🌟 **VIP FEATURES:**
 💎 Special items notifications (Godly, Advance, etc.)
 ⚡ Priority alerts for rare items
-🎯 Exclusive access to premium features
+🎯 Custom special items tracking
+🛠️ Personalized monitoring
 
 🌟 ═══════════════════════════════ 🌟
 💖 Enjoy your GAG Stock experience! 💖
@@ -343,12 +354,25 @@ async function handleMessage(senderId, messageText) {
   }
   else if (text === 'vip') {
     if (vipUsers.has(senderId) && vipUsers.get(senderId).active) {
+      const userCustomItems = customSpecialItems.get(senderId) || [];
+      const customItemsList = userCustomItems.length > 0 
+        ? userCustomItems.map(item => `• ${item}`).join('\n')
+        : '• None added yet';
+
       await sendMessage(senderId, {
         text: `💎 **YOU'RE ALREADY VIP!** 💎
 
 🌟 Your VIP status is active
 ⚡ Enjoying special items notifications
 🎯 Premium features unlocked
+
+📋 **YOUR CUSTOM SPECIAL ITEMS:**
+${customItemsList}
+
+💡 **VIP COMMANDS:**
+➕ add [item] - Add custom item
+➖ remove [item] - Remove item
+📋 list - Show all your items
 
 💖 Thank you for being a VIP member!`
       });
@@ -381,12 +405,150 @@ async function handleMessage(senderId, messageText) {
 🌟 **VIP BENEFITS:**
 ✨ Special items notifications
 ⚡ Priority alerts for rare items
-🎯 Exclusive premium features
+🎯 Custom special items tracking
+🛠️ Personalized monitoring
 
 💌 You'll be notified once approved!`
     });
   }
+  else if (text.startsWith('add ')) {
+    if (!vipUsers.has(senderId) || !vipUsers.get(senderId).active) {
+      await sendMessage(senderId, {
+        text: `🔒 **VIP FEATURE REQUIRED** 🔒
+
+💎 This feature is exclusive to VIP members
+🎯 Type 'vip' to request access
+
+⭐ VIP members can add custom special items for monitoring!`
+      });
+      return;
+    }
+
+    const itemToAdd = text.substring(4).trim();
+    if (!itemToAdd) {
+      await sendMessage(senderId, {
+        text: `❌ **INVALID FORMAT** ❌
+
+💡 Correct usage: add [item name]
+📝 Example: add Rainbow Seed
+
+🎯 The item name should match what appears in the stock!`
+      });
+      return;
+    }
+
+    const userCustomItems = customSpecialItems.get(senderId) || [];
+    if (userCustomItems.some(item => cleanText(item) === cleanText(itemToAdd))) {
+      await sendMessage(senderId, {
+        text: `⚠️ **ITEM ALREADY EXISTS** ⚠️
+
+🎯 "${itemToAdd}" is already in your special items list
+📋 Type 'list' to see all your items`
+      });
+      return;
+    }
+
+    userCustomItems.push(itemToAdd);
+    customSpecialItems.set(senderId, userCustomItems);
+
+    await sendMessage(senderId, {
+      text: `✅ **ITEM ADDED SUCCESSFULLY** ✅
+
+➕ **Added**: "${itemToAdd}"
+🔔 You'll now receive notifications when this item is in stock!
+
+📊 **Total Custom Items**: ${userCustomItems.length}
+📋 Type 'list' to see all your special items`
+    });
+  }
+  else if (text.startsWith('remove ')) {
+    if (!vipUsers.has(senderId) || !vipUsers.get(senderId).active) {
+      await sendMessage(senderId, {
+        text: `🔒 **VIP FEATURE REQUIRED** 🔒
+
+💎 This feature is exclusive to VIP members
+🎯 Type 'vip' to request access`
+      });
+      return;
+    }
+
+    const itemToRemove = text.substring(7).trim();
+    if (!itemToRemove) {
+      await sendMessage(senderId, {
+        text: `❌ **INVALID FORMAT** ❌
+
+💡 Correct usage: remove [item name]
+📝 Example: remove Rainbow Seed`
+      });
+      return;
+    }
+
+    const userCustomItems = customSpecialItems.get(senderId) || [];
+    const itemIndex = userCustomItems.findIndex(item => cleanText(item) === cleanText(itemToRemove));
+    
+    if (itemIndex === -1) {
+      await sendMessage(senderId, {
+        text: `❌ **ITEM NOT FOUND** ❌
+
+🎯 "${itemToRemove}" is not in your special items list
+📋 Type 'list' to see all your items`
+      });
+      return;
+    }
+
+    userCustomItems.splice(itemIndex, 1);
+    customSpecialItems.set(senderId, userCustomItems);
+
+    await sendMessage(senderId, {
+      text: `✅ **ITEM REMOVED SUCCESSFULLY** ✅
+
+➖ **Removed**: "${itemToRemove}"
+🔕 No more notifications for this item
+
+📊 **Remaining Custom Items**: ${userCustomItems.length}
+📋 Type 'list' to see your current items`
+    });
+  }
+  else if (text === 'list') {
+    if (!vipUsers.has(senderId) || !vipUsers.get(senderId).active) {
+      await sendMessage(senderId, {
+        text: `🔒 **VIP FEATURE REQUIRED** 🔒
+
+💎 This feature is exclusive to VIP members
+🎯 Type 'vip' to request access`
+      });
+      return;
+    }
+
+    const userCustomItems = customSpecialItems.get(senderId) || [];
+    const defaultItemsList = SPECIAL_ITEMS.map(item => `• ${item} (Default)`).join('\n');
+    const customItemsList = userCustomItems.length > 0 
+      ? userCustomItems.map(item => `• ${item} (Custom)`).join('\n')
+      : '• None added yet';
+
+    await sendMessage(senderId, {
+      text: `📋 **YOUR SPECIAL ITEMS LIST** 📋
+
+🎯 **DEFAULT SPECIAL ITEMS:**
+${defaultItemsList}
+
+✨ **YOUR CUSTOM ITEMS:**
+${customItemsList}
+
+📊 **Total**: ${SPECIAL_ITEMS.length + userCustomItems.length} items monitored
+
+💡 **COMMANDS:**
+➕ add [item] - Add new item
+➖ remove [item] - Remove item`
+    });
+  }
   else {
+    const isVip = vipUsers.has(senderId) && vipUsers.get(senderId).active;
+    const vipCommands = isVip ? `
+💎 **add [item]** - Add custom special item
+➖ **remove [item]** - Remove custom item
+📋 **list** - Show your special items` : '';
+
     await sendMessage(senderId, {
       text: `🤖 **COMMAND NOT RECOGNIZED** 🤖
 
@@ -394,7 +556,7 @@ async function handleMessage(senderId, messageText) {
 🔔 **track** - Start notifications
 🛑 **stop** - Stop notifications
 💎 **vip** - Request VIP access
-ℹ️ **help** - Show help menu
+ℹ️ **help** - Show help menu${vipCommands}
 
 Type 'help' for detailed information!`
     });
