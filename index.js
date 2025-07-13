@@ -7,6 +7,9 @@ const bodyParser = require('body-parser');
 const app = express();
 app.use(bodyParser.json());
 
+const fs = require('fs');
+const path = require('path');
+
 // Storage for sessions and user data
 const activeSessions = new Map();
 const vipUsers = new Map();
@@ -14,6 +17,70 @@ const accessRequests = new Map();
 const lastSentCache = new Map();
 const globalLastSeen = new Map();
 const customSpecialItems = new Map(); // Store custom items per VIP user
+
+// Persistent storage files
+const STORAGE_DIR = './storage';
+const VIP_USERS_FILE = path.join(STORAGE_DIR, 'vip_users.json');
+const ACCESS_REQUESTS_FILE = path.join(STORAGE_DIR, 'access_requests.json');
+const CUSTOM_ITEMS_FILE = path.join(STORAGE_DIR, 'custom_items.json');
+
+// Ensure storage directory exists
+if (!fs.existsSync(STORAGE_DIR)) {
+  fs.mkdirSync(STORAGE_DIR, { recursive: true });
+}
+
+// Load persistent data
+function loadPersistentData() {
+  try {
+    // Load VIP users
+    if (fs.existsSync(VIP_USERS_FILE)) {
+      const vipData = JSON.parse(fs.readFileSync(VIP_USERS_FILE, 'utf8'));
+      Object.entries(vipData).forEach(([userId, userData]) => {
+        vipUsers.set(userId, userData);
+      });
+      console.log(`📊 Loaded ${vipUsers.size} VIP users`);
+    }
+
+    // Load access requests
+    if (fs.existsSync(ACCESS_REQUESTS_FILE)) {
+      const requestData = JSON.parse(fs.readFileSync(ACCESS_REQUESTS_FILE, 'utf8'));
+      Object.entries(requestData).forEach(([code, requestInfo]) => {
+        accessRequests.set(code, requestInfo);
+      });
+      console.log(`📋 Loaded ${accessRequests.size} pending access requests`);
+    }
+
+    // Load custom special items
+    if (fs.existsSync(CUSTOM_ITEMS_FILE)) {
+      const customData = JSON.parse(fs.readFileSync(CUSTOM_ITEMS_FILE, 'utf8'));
+      Object.entries(customData).forEach(([userId, items]) => {
+        customSpecialItems.set(userId, items);
+      });
+      console.log(`🎯 Loaded custom items for ${customSpecialItems.size} users`);
+    }
+  } catch (error) {
+    console.error('Error loading persistent data:', error);
+  }
+}
+
+// Save persistent data
+function savePersistentData() {
+  try {
+    // Save VIP users
+    const vipData = Object.fromEntries(vipUsers);
+    fs.writeFileSync(VIP_USERS_FILE, JSON.stringify(vipData, null, 2));
+
+    // Save access requests
+    const requestData = Object.fromEntries(accessRequests);
+    fs.writeFileSync(ACCESS_REQUESTS_FILE, JSON.stringify(requestData, null, 2));
+
+    // Save custom special items
+    const customData = Object.fromEntries(customSpecialItems);
+    fs.writeFileSync(CUSTOM_ITEMS_FILE, JSON.stringify(customData, null, 2));
+  } catch (error) {
+    console.error('Error saving persistent data:', error);
+  }
+}
 
 // Bot configuration
 const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
@@ -466,6 +533,7 @@ ${customItemsList}
 
     const accessCode = generateAccessCode(userProfile.first_name || 'User');
     accessRequests.set(accessCode, { userId: senderId, userName, timestamp: Date.now() });
+    savePersistentData(); // Save to persistent storage
 
     // Send to admin
     await sendMessage(ADMIN_USER_ID, {
@@ -535,6 +603,7 @@ ${customItemsList}
 
     userCustomItems.push(itemToAdd);
     customSpecialItems.set(senderId, userCustomItems);
+    savePersistentData(); // Save to persistent storage
 
     await sendMessage(senderId, {
       text: `✅ **ITEM ADDED SUCCESSFULLY** ✅
@@ -583,6 +652,7 @@ ${customItemsList}
 
     userCustomItems.splice(itemIndex, 1);
     customSpecialItems.set(senderId, userCustomItems);
+    savePersistentData(); // Save to persistent storage
 
     await sendMessage(senderId, {
       text: `✅ **ITEM REMOVED SUCCESSFULLY** ✅
@@ -661,6 +731,7 @@ async function handleVipApproval(accessCode) {
   const { userId, userName } = request;
   vipUsers.set(userId, { active: true, approvedAt: Date.now(), approvedBy: ADMIN_USER_ID });
   accessRequests.delete(accessCode);
+  savePersistentData(); // Save to persistent storage
 
   // Notify admin
   await sendMessage(ADMIN_USER_ID, {
@@ -791,6 +862,9 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log('🌐 WebSocket: Connecting...');
   console.log('🚀 ═══════════════════════════════════════');
   
+  // Load persistent data
+  loadPersistentData();
+  
   // Initialize WebSocket connection
   ensureWebSocketConnection();
   
@@ -798,9 +872,13 @@ app.listen(PORT, '0.0.0.0', () => {
   startAutoUptime();
 });
 
+// Periodic save every 5 minutes
+setInterval(savePersistentData, 5 * 60 * 1000);
+
 // Graceful shutdown
 process.on('SIGTERM', () => {
   console.log('🛑 Shutting down gracefully...');
+  savePersistentData(); // Save data before shutdown
   if (sharedWebSocket) {
     sharedWebSocket.close();
   }
@@ -808,4 +886,10 @@ process.on('SIGTERM', () => {
   if (uptimeInterval) {
     clearInterval(uptimeInterval);
   }
+});
+
+process.on('SIGINT', () => {
+  console.log('🛑 Shutting down gracefully...');
+  savePersistentData(); // Save data before shutdown
+  process.exit(0);
 });

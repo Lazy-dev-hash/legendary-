@@ -131,3 +131,5 @@ dist
 
 # Replit debugger
 .breakpoints
+# Storage directory for persistent data
+storage/
