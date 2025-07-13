@@ -20,6 +20,70 @@ const PAGE_ACCESS_TOKEN = process.env.PAGE_ACCESS_TOKEN;
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const ADMIN_USER_ID = process.env.ADMIN_USER_ID;
 
+// Auto uptime configuration
+let uptimeInterval = null;
+const UPTIME_INTERVAL = 14 * 60 * 1000; // 14 minutes
+
+// Detect deployment platform
+function detectDeploymentPlatform() {
+  if (process.env.REPLIT_DEPLOYMENT) return 'replit';
+  if (process.env.RENDER) return 'render';
+  if (process.env.VERCEL) return 'vercel';
+  if (process.env.HEROKU_APP_NAME) return 'heroku';
+  if (process.env.RAILWAY_STATIC_URL) return 'railway';
+  if (process.env.NETLIFY) return 'netlify';
+  return 'unknown';
+}
+
+// Auto uptime function
+async function keepAlive() {
+  const platform = detectDeploymentPlatform();
+  
+  try {
+    // Get the current URL based on platform
+    let baseUrl = '';
+    
+    if (platform === 'replit') {
+      baseUrl = `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co`;
+    } else if (platform === 'render') {
+      baseUrl = process.env.RENDER_EXTERNAL_URL;
+    } else if (platform === 'vercel') {
+      baseUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '';
+    } else if (platform === 'heroku') {
+      baseUrl = `https://${process.env.HEROKU_APP_NAME}.herokuapp.com`;
+    } else if (platform === 'railway') {
+      baseUrl = process.env.RAILWAY_STATIC_URL;
+    } else {
+      // Fallback - try localhost
+      baseUrl = `http://localhost:${PORT}`;
+    }
+
+    if (baseUrl) {
+      const response = await axios.get(`${baseUrl}/`);
+      console.log(`🔄 Uptime ping successful on ${platform}: ${response.status}`);
+    }
+  } catch (error) {
+    console.log(`⚠️ Uptime ping failed: ${error.message}`);
+  }
+}
+
+// Start auto uptime
+function startAutoUptime() {
+  const platform = detectDeploymentPlatform();
+  console.log(`🚀 Auto uptime started for platform: ${platform}`);
+  
+  // Clear existing interval if any
+  if (uptimeInterval) {
+    clearInterval(uptimeInterval);
+  }
+  
+  // Set up periodic uptime pings
+  uptimeInterval = setInterval(keepAlive, UPTIME_INTERVAL);
+  
+  // First ping after 1 minute
+  setTimeout(keepAlive, 60000);
+}
+
 // Special items to monitor
 const SPECIAL_ITEMS = ['Godly Sprinkler', 'Advance Sprinkler', 'basic Sprinkler', 'Master Sprinkler', 'beanstalk', 'Ember lily'];
 
@@ -297,6 +361,7 @@ async function handleMessage(senderId, messageText) {
 🔔 **track** - Start stock notifications
 🛑 **stop** - Stop notifications  
 💎 **vip** - Request VIP access
+🆔 **get-my-id** - Get your user ID
 ℹ️ **help** - Show this menu
 ${vipCommands}
 🌟 **VIP FEATURES:**
@@ -304,6 +369,9 @@ ${vipCommands}
 ⚡ Priority alerts for rare items
 🎯 Custom special items tracking
 🛠️ Personalized monitoring
+
+🔄 **AUTO UPTIME:** Bot stays online 24/7
+🌍 **PLATFORM:** Auto-detects deployment
 
 🌟 ═══════════════════════════════ 🌟
 💖 Enjoy your GAG Stock experience! 💖
@@ -350,6 +418,23 @@ ${vipCommands}
 👋 Thanks for using GAG Stock Bot!
 
 💡 Type 'track' to re-enable notifications`
+    });
+  }
+  else if (text === 'get-my-id') {
+    // Special command to help users get their user ID for admin setup
+    await sendMessage(senderId, {
+      text: `🆔 **YOUR USER ID** 🆔
+
+👤 **Your Facebook User ID**: ${senderId}
+📝 **Your Name**: ${userName}
+
+🔧 **To make yourself admin:**
+1. Go to Replit Secrets
+2. Add/Update: ADMIN_USER_ID
+3. Set value to: ${senderId}
+4. Restart the bot
+
+💡 After setting this up, you'll be able to approve VIP requests!`
     });
   }
   else if (text === 'vip') {
@@ -655,34 +740,62 @@ app.post('/webhook', (req, res) => {
 
 // Health check endpoint
 app.get('/', (req, res) => {
+  const platform = detectDeploymentPlatform();
   res.json({
     status: 'active',
     message: '🤖 GAG Stock Facebook Bot is running!',
     timestamp: new Date().toISOString(),
+    platform: platform,
+    uptime: Math.floor(process.uptime()),
     features: {
       stock_tracking: true,
       vip_system: true,
       special_items: SPECIAL_ITEMS,
       active_sessions: activeSessions.size,
-      vip_users: vipUsers.size
+      vip_users: vipUsers.size,
+      auto_uptime: true
     }
   });
+});
+
+// Admin ID endpoint (for getting your user ID)
+app.get('/get-admin-id/:userId', async (req, res) => {
+  const userId = req.params.userId;
+  try {
+    const userProfile = await getUserProfile(userId);
+    res.json({
+      user_id: userId,
+      name: `${userProfile.first_name} ${userProfile.last_name}`.trim(),
+      message: 'Use this user_id as your ADMIN_USER_ID environment variable'
+    });
+  } catch (error) {
+    res.status(400).json({
+      error: 'Invalid user ID or unable to fetch profile',
+      message: 'Make sure the user has messaged your bot first'
+    });
+  }
 });
 
 // Start server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, '0.0.0.0', () => {
+  const platform = detectDeploymentPlatform();
   console.log('🚀 ═══════════════════════════════════════');
   console.log('🤖 GAG Stock Facebook Bot Started!');
   console.log('🚀 ═══════════════════════════════════════');
   console.log(`📡 Server running on port ${PORT}`);
+  console.log(`🌍 Platform detected: ${platform}`);
   console.log('💎 VIP System: Active');
   console.log('🔔 Special Items Monitoring: Active');
+  console.log('🔄 Auto Uptime: Active');
   console.log('🌐 WebSocket: Connecting...');
   console.log('🚀 ═══════════════════════════════════════');
   
   // Initialize WebSocket connection
   ensureWebSocketConnection();
+  
+  // Start auto uptime system
+  startAutoUptime();
 });
 
 // Graceful shutdown
@@ -692,4 +805,7 @@ process.on('SIGTERM', () => {
     sharedWebSocket.close();
   }
   clearInterval(keepAliveInterval);
+  if (uptimeInterval) {
+    clearInterval(uptimeInterval);
+  }
 });
