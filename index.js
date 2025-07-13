@@ -21,7 +21,7 @@ const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const ADMIN_USER_ID = process.env.ADMIN_USER_ID;
 
 // Special items to monitor
-const SPECIAL_ITEMS = ['Godly', 'Advance', 'basic', 'master', 'beanstalk', 'Ember lily'];
+const SPECIAL_ITEMS = ['Godly Sprinkler', 'Advance Sprinkler', 'basic Sprinkler', 'Master Sprinkler', 'beanstalk', 'Ember lily'];
 
 let sharedWebSocket = null;
 let keepAliveInterval = null;
