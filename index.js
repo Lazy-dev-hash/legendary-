@@ -1,4 +1,3 @@
-
 const express = require('express');
 const axios = require('axios');
 const WebSocket = require('ws');
@@ -12,16 +11,12 @@ const path = require('path');
 
 // Storage for sessions and user data
 const activeSessions = new Map();
-const vipUsers = new Map();
-const accessRequests = new Map();
 const lastSentCache = new Map();
 const globalLastSeen = new Map();
-const customSpecialItems = new Map(); // Store custom items per VIP user
+const customSpecialItems = new Map(); // Store custom items per user
 
 // Persistent storage files
 const STORAGE_DIR = './storage';
-const VIP_USERS_FILE = path.join(STORAGE_DIR, 'vip_users.json');
-const ACCESS_REQUESTS_FILE = path.join(STORAGE_DIR, 'access_requests.json');
 const CUSTOM_ITEMS_FILE = path.join(STORAGE_DIR, 'custom_items.json');
 
 // Ensure storage directory exists
@@ -32,24 +27,6 @@ if (!fs.existsSync(STORAGE_DIR)) {
 // Load persistent data
 function loadPersistentData() {
   try {
-    // Load VIP users
-    if (fs.existsSync(VIP_USERS_FILE)) {
-      const vipData = JSON.parse(fs.readFileSync(VIP_USERS_FILE, 'utf8'));
-      Object.entries(vipData).forEach(([userId, userData]) => {
-        vipUsers.set(userId, userData);
-      });
-      console.log(`📊 Loaded ${vipUsers.size} VIP users`);
-    }
-
-    // Load access requests
-    if (fs.existsSync(ACCESS_REQUESTS_FILE)) {
-      const requestData = JSON.parse(fs.readFileSync(ACCESS_REQUESTS_FILE, 'utf8'));
-      Object.entries(requestData).forEach(([code, requestInfo]) => {
-        accessRequests.set(code, requestInfo);
-      });
-      console.log(`📋 Loaded ${accessRequests.size} pending access requests`);
-    }
-
     // Load custom special items
     if (fs.existsSync(CUSTOM_ITEMS_FILE)) {
       const customData = JSON.parse(fs.readFileSync(CUSTOM_ITEMS_FILE, 'utf8'));
@@ -66,14 +43,6 @@ function loadPersistentData() {
 // Save persistent data
 function savePersistentData() {
   try {
-    // Save VIP users
-    const vipData = Object.fromEntries(vipUsers);
-    fs.writeFileSync(VIP_USERS_FILE, JSON.stringify(vipData, null, 2));
-
-    // Save access requests
-    const requestData = Object.fromEntries(accessRequests);
-    fs.writeFileSync(ACCESS_REQUESTS_FILE, JSON.stringify(requestData, null, 2));
-
     // Save custom special items
     const customData = Object.fromEntries(customSpecialItems);
     fs.writeFileSync(CUSTOM_ITEMS_FILE, JSON.stringify(customData, null, 2));
@@ -105,11 +74,11 @@ function detectDeploymentPlatform() {
 // Auto uptime function
 async function keepAlive() {
   const platform = detectDeploymentPlatform();
-  
+
   try {
     // Get the current URL based on platform
     let baseUrl = '';
-    
+
     if (platform === 'replit') {
       baseUrl = `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co`;
     } else if (platform === 'render') {
@@ -138,20 +107,20 @@ async function keepAlive() {
 function startAutoUptime() {
   const platform = detectDeploymentPlatform();
   console.log(`🚀 Auto uptime started for platform: ${platform}`);
-  
+
   // Clear existing interval if any
   if (uptimeInterval) {
     clearInterval(uptimeInterval);
   }
-  
+
   // Set up periodic uptime pings
   uptimeInterval = setInterval(keepAlive, UPTIME_INTERVAL);
-  
+
   // First ping after 1 minute
   setTimeout(keepAlive, 60000);
 }
 
-// Special items to monitor
+// Special items to monitor (now free for everyone)
 const SPECIAL_ITEMS = ['Godly Sprinkler', 'Advance Sprinkler', 'basic Sprinkler', 'Master Sprinkler', 'beanstalk', 'Ember lily'];
 
 let sharedWebSocket = null;
@@ -180,11 +149,6 @@ function getTimeAgo(date) {
   if (min < 60) return `${min}m ago`;
   if (hour < 24) return `${hour}h ago`;
   return `${day}d ago`;
-}
-
-function generateAccessCode(username) {
-  const randomCode = Math.random().toString(36).substring(2, 8);
-  return `${username}-vip-${randomCode}`;
 }
 
 function cleanText(text) {
@@ -271,7 +235,7 @@ async function processStockUpdate(stock) {
     travelingmerchant: stock.travelingmerchant || { items: [] }
   };
 
-  // Check for special items for VIP users
+  // Check for special items for all users who have special items monitoring enabled
   await checkSpecialItems(stockData);
 
   // Update regular stock notifications
@@ -280,14 +244,14 @@ async function processStockUpdate(stock) {
   }
 }
 
-// Check for special items (VIP feature)
+// Check for special items (now free for everyone)
 async function checkSpecialItems(stockData) {
-  for (const [userId, userData] of vipUsers.entries()) {
-    if (!userData.active) continue;
-    
+  for (const [userId, session] of activeSessions.entries()) {
+    if (!session.specialItems) continue; // Skip if user hasn't enabled special items monitoring
+
     const userSpecialItems = [...SPECIAL_ITEMS, ...(customSpecialItems.get(userId) || [])];
     const specialItemsFound = [];
-    
+
     for (const category of Object.values(stockData)) {
       if (category.items) {
         for (const item of category.items) {
@@ -306,7 +270,7 @@ async function checkSpecialItems(stockData) {
   }
 }
 
-// Send special item alert to VIP users
+// Send special item alert to users
 async function sendSpecialItemAlert(userId, items) {
   const itemList = items.map(item => 
     `✨ ${item.emoji || '🎯'} **${item.name}** - ${formatValue(item.quantity)}`
@@ -314,7 +278,7 @@ async function sendSpecialItemAlert(userId, items) {
 
   const message = {
     text: `🌟 ═══════════════════════════════ 🌟
-🎯 **VIP SPECIAL ITEMS ALERT** 🎯
+🎯 **SPECIAL ITEMS ALERT** 🎯
 🌟 ═══════════════════════════════ 🌟
 
 💎 **RARE ITEMS IN STOCK** 💎
@@ -325,7 +289,7 @@ ${itemList}
 🛒 Get them before they're gone!
 
 🌟 ═══════════════════════════════ 🌟
-💖 VIP Exclusive Notification 💖
+💖 Free Special Items Notification 💖
 🌟 ═══════════════════════════════ 🌟`
   };
 
@@ -348,15 +312,15 @@ async function sendStockNotification(senderId, stockData) {
     });
 
     const sections = [];
-    
+
     function addSection(label, section, emoji) {
       const items = Array.isArray(section?.items) ? section.items.filter(i => i.quantity > 0) : [];
       if (items.length === 0) return;
-      
+
       const itemList = items.map(i => 
         `• ${i.emoji || emoji} ${i.name}: ${formatValue(i.quantity)}`
       ).join('\n');
-      
+
       sections.push(`${emoji} **${label}**\n${itemList}${section.countdown ? `\n⏳ Restock: ${section.countdown}` : ""}`);
     }
 
@@ -397,24 +361,11 @@ async function handleMessage(senderId, messageText) {
   const userProfile = await getUserProfile(senderId);
   const userName = `${userProfile.first_name} ${userProfile.last_name}`.trim();
 
-  // Admin commands
-  if (senderId === ADMIN_USER_ID) {
-    if (text.startsWith('approve ')) {
-      const accessCode = text.substring(8);
-      await handleVipApproval(accessCode);
-      return;
-    }
-  }
-
   // User commands
   if (text === 'start' || text === 'help') {
-    const isVip = vipUsers.has(senderId) && vipUsers.get(senderId).active;
-    const vipCommands = isVip ? `
-💎 **VIP COMMANDS:**
-➕ **add [item]** - Add custom special item
-➖ **remove [item]** - Remove custom item
-📋 **list** - Show your special items
-` : '';
+    const session = activeSessions.get(senderId) || {};
+    const hasSpecialItems = session.specialItems;
+    const statusText = hasSpecialItems ? '✅ ENABLED' : '❌ DISABLED';
 
     const helpMessage = {
       text: `🌟 ═══════════════════════════════ 🌟
@@ -426,16 +377,22 @@ async function handleMessage(senderId, messageText) {
 📋 **AVAILABLE COMMANDS:**
 
 🔔 **track** - Start stock notifications
-🛑 **stop** - Stop notifications  
-💎 **vip** - Request VIP access
+🛑 **stop** - Stop notifications
+🎯 **special** - Enable special items alerts
+🔕 **special off** - Disable special items alerts
+➕ **add [item]** - Add custom special item
+➖ **remove [item]** - Remove custom item
+📋 **list** - Show your special items
 🆔 **get-my-id** - Get your user ID
 ℹ️ **help** - Show this menu
-${vipCommands}
-🌟 **VIP FEATURES:**
-💎 Special items notifications (Godly, Advance, etc.)
-⚡ Priority alerts for rare items
-🎯 Custom special items tracking
-🛠️ Personalized monitoring
+
+🎯 **SPECIAL ITEMS STATUS:** ${statusText}
+
+🌟 **FREE FEATURES:**
+✨ Special items notifications (Godly, Advance, etc.)
+⚡ Custom special items tracking
+🎮 Real-time stock monitoring
+🔔 Instant alerts for rare items
 
 🔄 **AUTO UPTIME:** Bot stays online 24/7
 🌍 **PLATFORM:** Auto-detects deployment
@@ -453,8 +410,8 @@ ${vipCommands}
       });
       return;
     }
-    
-    activeSessions.set(senderId, { active: true });
+
+    activeSessions.set(senderId, { active: true, specialItems: false });
     await sendMessage(senderId, {
       text: `✅ **TRACKING ACTIVATED** ✅
 
@@ -462,10 +419,10 @@ ${vipCommands}
 🔔 Notifications will be sent automatically
 📊 Real-time stock monitoring enabled
 
-💡 Type 'stop' to disable notifications
-💎 Type 'vip' for premium features`
+💡 Type 'special' to enable special items alerts
+🛑 Type 'stop' to disable notifications`
     });
-    
+
     ensureWebSocketConnection();
   }
   else if (text === 'stop') {
@@ -475,7 +432,7 @@ ${vipCommands}
       });
       return;
     }
-    
+
     activeSessions.delete(senderId);
     lastSentCache.delete(senderId);
     await sendMessage(senderId, {
@@ -485,6 +442,54 @@ ${vipCommands}
 👋 Thanks for using GAG Stock Bot!
 
 💡 Type 'track' to re-enable notifications`
+    });
+  }
+  else if (text === 'special') {
+    const session = activeSessions.get(senderId);
+    if (!session) {
+      await sendMessage(senderId, {
+        text: "⚠️ Please start tracking first with 'track' command before enabling special items."
+      });
+      return;
+    }
+
+    session.specialItems = true;
+    activeSessions.set(senderId, session);
+
+    await sendMessage(senderId, {
+      text: `🎯 **SPECIAL ITEMS MONITORING ENABLED** 🎯
+
+✨ You'll now receive alerts for special items!
+💎 **Monitored Items**: Godly, Advance, Basic, Master, Beanstalk, Ember Lily
+
+🔔 **FEATURES:**
+⚡ Instant notifications when items are in stock
+🎯 Custom items tracking (use 'add' command)
+💖 Free premium experience
+
+📋 Type 'list' to see all monitored items
+➕ Type 'add [item]' to add custom items`
+    });
+  }
+  else if (text === 'special off') {
+    const session = activeSessions.get(senderId);
+    if (!session || !session.specialItems) {
+      await sendMessage(senderId, {
+        text: "⚠️ Special items monitoring is not enabled."
+      });
+      return;
+    }
+
+    session.specialItems = false;
+    activeSessions.set(senderId, session);
+
+    await sendMessage(senderId, {
+      text: `🔕 **SPECIAL ITEMS MONITORING DISABLED** 🔕
+
+❌ Special items alerts turned off
+📊 Regular stock notifications continue
+
+💡 Type 'special' to re-enable special items alerts`
     });
   }
   else if (text === 'get-my-id') {
@@ -501,78 +506,18 @@ ${vipCommands}
 3. Set value to: ${senderId}
 4. Restart the bot
 
-💡 After setting this up, you'll be able to approve VIP requests!`
-    });
-  }
-  else if (text === 'vip') {
-    if (vipUsers.has(senderId) && vipUsers.get(senderId).active) {
-      const userCustomItems = customSpecialItems.get(senderId) || [];
-      const customItemsList = userCustomItems.length > 0 
-        ? userCustomItems.map(item => `• ${item}`).join('\n')
-        : '• None added yet';
-
-      await sendMessage(senderId, {
-        text: `💎 **YOU'RE ALREADY VIP!** 💎
-
-🌟 Your VIP status is active
-⚡ Enjoying special items notifications
-🎯 Premium features unlocked
-
-📋 **YOUR CUSTOM SPECIAL ITEMS:**
-${customItemsList}
-
-💡 **VIP COMMANDS:**
-➕ add [item] - Add custom item
-➖ remove [item] - Remove item
-📋 list - Show all your items
-
-💖 Thank you for being a VIP member!`
-      });
-      return;
-    }
-
-    const accessCode = generateAccessCode(userProfile.first_name || 'User');
-    accessRequests.set(accessCode, { userId: senderId, userName, timestamp: Date.now() });
-    savePersistentData(); // Save to persistent storage
-
-    // Send to admin
-    await sendMessage(ADMIN_USER_ID, {
-      text: `🔑 **VIP ACCESS REQUEST** 🔑
-
-👤 **User**: ${userName}
-🆔 **User ID**: ${senderId}
-🎯 **Access Code**: ${accessCode}
-
-💬 Reply with: approve ${accessCode}
-❌ Or ignore to deny access`
-    });
-
-    // Send to user
-    await sendMessage(senderId, {
-      text: `💎 **VIP ACCESS REQUESTED** 💎
-
-🎯 Your request has been sent to admin
-🔑 **Access Code**: ${accessCode}
-⏰ Please wait for approval
-
-🌟 **VIP BENEFITS:**
-✨ Special items notifications
-⚡ Priority alerts for rare items
-🎯 Custom special items tracking
-🛠️ Personalized monitoring
-
-💌 You'll be notified once approved!`
+💡 After setting this up, you'll have admin privileges!`
     });
   }
   else if (text.startsWith('add ')) {
-    if (!vipUsers.has(senderId) || !vipUsers.get(senderId).active) {
+    const session = activeSessions.get(senderId);
+    if (!session || !session.specialItems) {
       await sendMessage(senderId, {
-        text: `🔒 **VIP FEATURE REQUIRED** 🔒
+        text: `🔒 **SPECIAL ITEMS MONITORING REQUIRED** 🔒
 
-💎 This feature is exclusive to VIP members
-🎯 Type 'vip' to request access
-
-⭐ VIP members can add custom special items for monitoring!`
+🎯 Please enable special items monitoring first
+💡 Type 'special' to enable monitoring
+➕ Then you can add custom items!`
       });
       return;
     }
@@ -616,12 +561,13 @@ ${customItemsList}
     });
   }
   else if (text.startsWith('remove ')) {
-    if (!vipUsers.has(senderId) || !vipUsers.get(senderId).active) {
+    const session = activeSessions.get(senderId);
+    if (!session || !session.specialItems) {
       await sendMessage(senderId, {
-        text: `🔒 **VIP FEATURE REQUIRED** 🔒
+        text: `🔒 **SPECIAL ITEMS MONITORING REQUIRED** 🔒
 
-💎 This feature is exclusive to VIP members
-🎯 Type 'vip' to request access`
+🎯 Please enable special items monitoring first
+💡 Type 'special' to enable monitoring`
       });
       return;
     }
@@ -639,7 +585,7 @@ ${customItemsList}
 
     const userCustomItems = customSpecialItems.get(senderId) || [];
     const itemIndex = userCustomItems.findIndex(item => cleanText(item) === cleanText(itemToRemove));
-    
+
     if (itemIndex === -1) {
       await sendMessage(senderId, {
         text: `❌ **ITEM NOT FOUND** ❌
@@ -665,12 +611,14 @@ ${customItemsList}
     });
   }
   else if (text === 'list') {
-    if (!vipUsers.has(senderId) || !vipUsers.get(senderId).active) {
+    const session = activeSessions.get(senderId);
+    if (!session || !session.specialItems) {
       await sendMessage(senderId, {
-        text: `🔒 **VIP FEATURE REQUIRED** 🔒
+        text: `🔒 **SPECIAL ITEMS MONITORING REQUIRED** 🔒
 
-💎 This feature is exclusive to VIP members
-🎯 Type 'vip' to request access`
+🎯 Please enable special items monitoring first
+💡 Type 'special' to enable monitoring
+📋 Then you can view your special items list!`
       });
       return;
     }
@@ -698,75 +646,21 @@ ${customItemsList}
     });
   }
   else {
-    const isVip = vipUsers.has(senderId) && vipUsers.get(senderId).active;
-    const vipCommands = isVip ? `
-💎 **add [item]** - Add custom special item
-➖ **remove [item]** - Remove custom item
-📋 **list** - Show your special items` : '';
-
     await sendMessage(senderId, {
       text: `🤖 **COMMAND NOT RECOGNIZED** 🤖
 
 💡 Available commands:
 🔔 **track** - Start notifications
 🛑 **stop** - Stop notifications
-💎 **vip** - Request VIP access
-ℹ️ **help** - Show help menu${vipCommands}
+🎯 **special** - Enable special items alerts
+➕ **add [item]** - Add custom special item
+➖ **remove [item]** - Remove custom item
+📋 **list** - Show your special items
+ℹ️ **help** - Show help menu
 
 Type 'help' for detailed information!`
     });
   }
-}
-
-// Handle VIP approval
-async function handleVipApproval(accessCode) {
-  const request = accessRequests.get(accessCode);
-  if (!request) {
-    await sendMessage(ADMIN_USER_ID, {
-      text: `❌ **INVALID ACCESS CODE** ❌\n\nCode: ${accessCode} not found or expired.`
-    });
-    return;
-  }
-
-  const { userId, userName } = request;
-  vipUsers.set(userId, { active: true, approvedAt: Date.now(), approvedBy: ADMIN_USER_ID });
-  accessRequests.delete(accessCode);
-  savePersistentData(); // Save to persistent storage
-
-  // Notify admin
-  await sendMessage(ADMIN_USER_ID, {
-    text: `✅ **VIP ACCESS APPROVED** ✅
-
-👤 **User**: ${userName}
-🆔 **User ID**: ${userId}
-🎯 **Access Code**: ${accessCode}
-
-💎 User now has VIP privileges!`
-  });
-
-  // Notify user with aesthetic message
-  await sendMessage(userId, {
-    text: `🎉 ═══════════════════════════════ 🎉
-💎 **VIP ACCESS APPROVED!** 💎
-🎉 ═══════════════════════════════ 🎉
-
-🌟 **CONGRATULATIONS ${userName.toUpperCase()}!** 🌟
-
-💎 You are now a **VIP MEMBER**! 💎
-
-🎯 **EXCLUSIVE BENEFITS UNLOCKED:**
-✨ Special Items Notifications (Godly, Advance, Basic, Master, Beanstalk, Ember Lily)
-⚡ Priority alerts for rare items
-🚀 Lightning-fast notifications
-🎮 Premium GAG Stock experience
-
-🔔 **NOTIFICATIONS ACTIVATED**
-You'll receive instant alerts when special items are in stock!
-
-🎉 ═══════════════════════════════ 🎉
-💖 **WELCOME TO VIP CLUB!** 💖
-🎉 ═══════════════════════════════ 🎉`
-  });
 }
 
 // Webhook verification
@@ -792,11 +686,11 @@ app.post('/webhook', (req, res) => {
   if (body.object === 'page') {
     body.entry.forEach((entry) => {
       const webhookEvent = entry.messaging[0];
-      
+
       if (webhookEvent.message) {
         const senderId = webhookEvent.sender.id;
         const messageText = webhookEvent.message.text;
-        
+
         if (messageText) {
           handleMessage(senderId, messageText);
         }
@@ -820,10 +714,10 @@ app.get('/', (req, res) => {
     uptime: Math.floor(process.uptime()),
     features: {
       stock_tracking: true,
-      vip_system: true,
-      special_items: SPECIAL_ITEMS,
+      special_items: 'FREE',
+      special_items_list: SPECIAL_ITEMS,
       active_sessions: activeSessions.size,
-      vip_users: vipUsers.size,
+      custom_items_users: customSpecialItems.size,
       auto_uptime: true
     }
   });
@@ -856,18 +750,18 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log('🚀 ═══════════════════════════════════════');
   console.log(`📡 Server running on port ${PORT}`);
   console.log(`🌍 Platform detected: ${platform}`);
-  console.log('💎 VIP System: Active');
-  console.log('🔔 Special Items Monitoring: Active');
+  console.log('🎯 Special Items Monitoring: FREE FOR ALL');
+  console.log('🔔 Custom Items Tracking: Available');
   console.log('🔄 Auto Uptime: Active');
   console.log('🌐 WebSocket: Connecting...');
   console.log('🚀 ═══════════════════════════════════════');
-  
+
   // Load persistent data
   loadPersistentData();
-  
+
   // Initialize WebSocket connection
   ensureWebSocketConnection();
-  
+
   // Start auto uptime system
   startAutoUptime();
 });
