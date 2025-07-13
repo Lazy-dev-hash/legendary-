@@ -240,7 +240,9 @@ async function processStockUpdate(stock) {
 
   // Update regular stock notifications
   for (const [senderId, session] of activeSessions.entries()) {
-    await sendStockNotification(senderId, stockData);
+    if (session.stockNotifications !== false) { // Default to true for backward compatibility
+      await sendStockNotification(senderId, stockData);
+    }
   }
 }
 
@@ -377,7 +379,8 @@ async function handleMessage(senderId, messageText) {
 📋 **AVAILABLE COMMANDS:**
 
 🔔 **track** - Start stock notifications
-🛑 **stop** - Stop notifications
+🛑 **stop** - Stop all notifications
+📊 **stock off** - Turn off stock notifications only
 🎯 **special** - Enable special items alerts
 🔕 **special off** - Disable special items alerts
 ➕ **add [item]** - Add custom special item
@@ -411,7 +414,7 @@ async function handleMessage(senderId, messageText) {
       return;
     }
 
-    activeSessions.set(senderId, { active: true, specialItems: false });
+    activeSessions.set(senderId, { active: true, stockNotifications: true, specialItems: false });
     await sendMessage(senderId, {
       text: `✅ **TRACKING ACTIVATED** ✅
 
@@ -420,7 +423,8 @@ async function handleMessage(senderId, messageText) {
 📊 Real-time stock monitoring enabled
 
 💡 Type 'special' to enable special items alerts
-🛑 Type 'stop' to disable notifications`
+📊 Type 'stock off' to disable stock notifications only
+🛑 Type 'stop' to disable all notifications`
     });
 
     ensureWebSocketConnection();
@@ -454,6 +458,10 @@ async function handleMessage(senderId, messageText) {
     }
 
     session.specialItems = true;
+    // Ensure stockNotifications has a default value if not set
+    if (session.stockNotifications === undefined) {
+      session.stockNotifications = true;
+    }
     activeSessions.set(senderId, session);
 
     await sendMessage(senderId, {
@@ -490,6 +498,40 @@ async function handleMessage(senderId, messageText) {
 📊 Regular stock notifications continue
 
 💡 Type 'special' to re-enable special items alerts`
+    });
+  }
+  else if (text === 'stock off') {
+    const session = activeSessions.get(senderId);
+    if (!session) {
+      await sendMessage(senderId, {
+        text: "⚠️ You don't have active tracking enabled. Type 'track' to start."
+      });
+      return;
+    }
+
+    if (session.stockNotifications === false) {
+      await sendMessage(senderId, {
+        text: "⚠️ Stock notifications are already disabled."
+      });
+      return;
+    }
+
+    session.stockNotifications = false;
+    activeSessions.set(senderId, session);
+
+    const specialStatus = session.specialItems ? "✅ ACTIVE" : "❌ INACTIVE";
+
+    await sendMessage(senderId, {
+      text: `📊 **STOCK NOTIFICATIONS DISABLED** 📊
+
+❌ Regular stock alerts turned off
+🎯 **Special Items Status**: ${specialStatus}
+
+💡 **WHAT'S STILL ACTIVE:**
+${session.specialItems ? "✨ Special items notifications continue" : "📴 No notifications active"}
+
+🔔 Type 'track' to re-enable stock notifications
+🎯 Type 'special' to enable special items alerts`
     });
   }
   else if (text === 'get-my-id') {
